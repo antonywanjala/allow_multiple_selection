@@ -1,0 +1,2 @@
+# allow_multiple_selection
+allow_multiple_selection
