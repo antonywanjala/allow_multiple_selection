@@ -1,0 +1,21 @@
+/* Standard HTML Element Highlight */
+.custom-multi-highlight {
+  outline: 3px solid #ff0055 !important;
+  background-color: rgba(255, 0, 85, 0.18) !important;
+  box-shadow: 0 0 8px rgba(255, 0, 85, 0.45) !important;
+  border-radius: 3px !important;
+  transition: outline 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+/* Floating Overlay for Canvas & Virtualized Layers (e.g. Google Docs, PDF viewers, Figma web) */
+.universal-floating-highlight-overlay {
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: 2147483647 !important;
+  outline: 3px solid #ff0055 !important;
+  background-color: rgba(255, 0, 85, 0.22) !important;
+  border-radius: 3px !important;
+  box-shadow: 0 0 8px rgba(255, 0, 85, 0.45) !important;
+  box-sizing: border-box !important;
+  transition: all 0.1s ease-out;
+}

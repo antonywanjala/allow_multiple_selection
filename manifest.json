@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Universal Multi-Term Highlighter",
+  "version": "2.0.0",
+  "description": "Highlights visible elements containing all space-separated search terms anywhere across any webpage or web application.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Multi-Term Finder"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["content.css"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

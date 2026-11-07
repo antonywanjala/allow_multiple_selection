@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <h3>Multi-Term Finder</h3>
+  <p>Enter terms separated by spaces (e.g., <code>layout thrashing</code>):</p>
+  
+  <div class="field-container">
+    <input type="text" id="searchInput" placeholder="Enter terms..." autofocus autocomplete="off" />
+    <div id="inlineError" class="input-error-msg" aria-live="polite"></div>
+  </div>
+  
+  <div class="button-group">
+    <button id="searchBtn">Highlight</button>
+    <button id="clearBtn">Clear</button>
+  </div>
+
+  <div id="actionContainer" class="action-container" style="display: none;">
+    <button id="refreshPageBtn" class="secondary-action-btn">Refresh Page</button>
+  </div>
+
+  <div id="matchCountBadge" class="match-badge"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

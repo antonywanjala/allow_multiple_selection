@@ -1,0 +1,232 @@
+let observer = null;
+let activeTerms = [];
+let activeOverlays = [];
+let scrollListenerBound = false;
+
+// 1. Extension Messaging Interface
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'ping') {
+    sendResponse({ status: 'alive' });
+    return true;
+  }
+
+  if (request.action === 'highlight') {
+    activeTerms = (request.terms || []).filter(t => t.trim().length > 0);
+    const count = executeUniversalHighlight(activeTerms);
+    bindDynamicObservers();
+    sendResponse({ status: 'highlighted', matchesFound: count });
+  } else if (request.action === 'clear') {
+    activeTerms = [];
+    teardownObservers();
+    clearAllHighlights();
+    sendResponse({ status: 'cleared', matchesFound: 0 });
+  }
+  return true;
+});
+
+// 2. Debouncing Helper
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(this, args), wait);
+  };
+}
+
+// 3. Clear Highlights
+function clearAllHighlights() {
+  document.querySelectorAll('.custom-multi-highlight').forEach(el => {
+    el.classList.remove('custom-multi-highlight');
+  });
+
+  activeOverlays.forEach(overlay => overlay.remove());
+  activeOverlays = [];
+}
+
+// 4. Visibility Evaluation (Avoids layout thrashing)
+function isElementVisible(el) {
+  if (typeof el.checkVisibility === 'function') {
+    return el.checkVisibility({
+      checkOpacity: true,
+      checkVisibilityCSS: true
+    });
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+// 5. Dynamic Observers
+function bindDynamicObservers() {
+  if (observer) observer.disconnect();
+
+  observer = new MutationObserver(
+    debounce(() => {
+      if (activeTerms.length > 0) {
+        executeUniversalHighlight(activeTerms);
+      }
+    }, 350)
+  );
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+
+  if (!scrollListenerBound) {
+    window.addEventListener('scroll', handleViewportShift, { passive: true });
+    window.addEventListener('resize', handleViewportShift, { passive: true });
+    scrollListenerBound = true;
+  }
+}
+
+function teardownObservers() {
+  if (observer) {
+    observer.disconnect();
+    observer = null;
+  }
+  if (scrollListenerBound) {
+    window.removeEventListener('scroll', handleViewportShift);
+    window.removeEventListener('resize', handleViewportShift);
+    scrollListenerBound = false;
+  }
+}
+
+const handleViewportShift = debounce(() => {
+  if (activeTerms.length > 0 && activeOverlays.length > 0) {
+    executeUniversalHighlight(activeTerms);
+  }
+}, 150);
+
+// 6. Universal Highlight Router
+function executeUniversalHighlight(terms) {
+  clearAllHighlights();
+  if (!terms || terms.length === 0) return 0;
+
+  const isGoogleDoc = window.location.hostname.includes('docs.google.com') &&
+                      window.location.pathname.includes('/document');
+
+  if (isGoogleDoc) {
+    return highlightVirtualizedCanvas(terms);
+  } else {
+    return highlightUniversalDOM(terms);
+  }
+}
+
+// 7. Standard DOM Tree Highlighter (General Web Pages & SPAs)
+function highlightUniversalDOM(terms) {
+  const lowerTerms = terms.map(t => t.toLowerCase());
+  const skipTags = new Set([
+    'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'PATH', 'IFRAME', 'HEAD', 'META', 'LINK'
+  ]);
+  const candidates = [];
+
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode: (node) => {
+        if (skipTags.has(node.tagName)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let currentNode = walker.nextNode();
+  while (currentNode) {
+    const text = (currentNode.textContent || '').replace(/\s+/g, ' ').toLowerCase();
+    const matchesAll = lowerTerms.every(term => text.includes(term));
+
+    if (matchesAll) {
+      candidates.push(currentNode);
+    }
+    currentNode = walker.nextNode();
+  }
+
+  const candidateSet = new Set(candidates);
+  const deepestNodes = candidates.filter(el => {
+    for (let i = 0; i < el.children.length; i++) {
+      if (candidateSet.has(el.children[i]) || el.children[i].querySelector('.custom-multi-highlight')) {
+        return false;
+      }
+    }
+    return !Array.from(el.querySelectorAll('*')).some(desc => candidateSet.has(desc));
+  });
+
+  let count = 0;
+  deepestNodes.forEach(el => {
+    if (isElementVisible(el)) {
+      el.classList.add('custom-multi-highlight');
+      count++;
+    }
+  });
+
+  return count;
+}
+
+// 8. Virtualized / Google Docs Canvas Highlighter
+// Handles broken text caused by spellcheck spans, virtualized DOM slices, and canvas overlays
+function highlightVirtualizedCanvas(terms) {
+  const lowerTerms = terms.map(t => t.toLowerCase());
+  let count = 0;
+
+  // Pass 1: Paragraph containers (unifies strings split by spellcheck wavy lines/sub-spans)
+  const paragraphs = document.querySelectorAll(
+    '.kix-paragraphrenderer, [role="paragraph"], .docs-text-renderer'
+  );
+
+  if (paragraphs.length > 0) {
+    paragraphs.forEach(p => {
+      const fullText = (p.innerText || p.textContent || '')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+      const matchesAll = lowerTerms.every(term => fullText.includes(term));
+
+      if (matchesAll) {
+        const rect = p.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          createFloatingOverlay(rect);
+          count++;
+        }
+      }
+    });
+  }
+
+  // Pass 2: Secondary containers (fallback for alternative view modes or page wrappers)
+  if (count === 0) {
+    const secondaryTargets = document.querySelectorAll(
+      '.kix-lineview, .kix-page-content-wrapper, .kix-canvas-tile-content, [role="textbox"], [contenteditable="true"]'
+    );
+
+    secondaryTargets.forEach(node => {
+      const text = (node.innerText || node.textContent || '')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+      if (lowerTerms.every(term => text.includes(term))) {
+        const rect = node.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          createFloatingOverlay(rect);
+          count++;
+        }
+      }
+    });
+  }
+
+  return count;
+}
+
+// 9. Floating Overlay Placement
+function createFloatingOverlay(rect) {
+  const overlay = document.createElement('div');
+  overlay.className = 'universal-floating-highlight-overlay';
+
+  overlay.style.top = `${rect.top + window.scrollY}px`;
+  overlay.style.left = `${rect.left + window.scrollX}px`;
+  overlay.style.width = `${rect.width}px`;
+  overlay.style.height = `${rect.height}px`;
+
+  document.body.appendChild(overlay);
+  activeOverlays.push(overlay);
+}
